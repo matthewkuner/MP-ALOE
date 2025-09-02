@@ -7,4 +7,3 @@ torch==2.2.2
 matgl==1.0.0
 maml==2024.6.13
 atomate2==0.0.14
-

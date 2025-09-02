@@ -1,4 +1,4 @@
-#%%
+# %%
 import numpy as np
 import pandas as pd
 import copy
@@ -9,26 +9,27 @@ from collections import Counter
 from itertools import permutations
 import random
 
-import datetime
 
 from pymatgen.core.structure import Structure
 from pymatgen.core.periodic_table import Element
 from pymatgen.io.vasp.sets import MPRelaxSet
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 from _scramble_structure import scramble_structure
 from _guess_lattice_param import get_structure_with_guessed_lattice_params
 from _run_UIPs import evaluate_structures_using_UIPs
+from _paths import candidates_path
 import shutil
 
-energy_diff_threshold = 0.1 #eV/atom
-force_diff_threshold = 0.1 #eV/Angstrom
-stress_diff_threshold = 0.1 #eV/Angstrom^3
-max_allowed_median_energy = 0.25 # eV/atom
-max_allowed_median_force_mag = 50 # eV/Angstrom
-max_allowed_median_stress_mag = 0.5 # 1 eV/Angstrom^3 = ~160 GPa
+energy_diff_threshold = 0.1  # eV/atom
+force_diff_threshold = 0.1  # eV/Angstrom
+stress_diff_threshold = 0.1  # eV/Angstrom^3
+max_allowed_median_energy = 0.25  # eV/atom
+max_allowed_median_force_mag = 50  # eV/Angstrom
+max_allowed_median_stress_mag = 0.5  # 1 eV/Angstrom^3 = ~160 GPa
 
 he_factor = 3
 ne_factor = 2
@@ -37,14 +38,34 @@ actinide_factor = 4
 lanthanide_factor = 3
 Tc_factor = 4
 
-base_folder_to_save = "../candidate_structures_for_dft"
+arbitrary_elements = [
+    "H",
+    "He",
+    "Li",
+    "Be",
+    "B",
+    "C",
+    "N",
+    "O",
+    "F",
+    "Ne",
+    "Na",
+    "Mg",
+    "Al",
+    "Si",
+    "P",
+    "S",
+    "Cl",
+    "Ar",
+    "K",
+    "Ca",
+]
 
-arbitrary_elements = ["H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca"]
 
 def query_by_committee(structure):
 
     def get_min_energy_diff(list_of_energy_vals):
-        return np.std(list_of_energy_vals)  
+        return np.std(list_of_energy_vals)
 
     def get_min_force_diff(list_of_force_arrays):
         diffs = []
@@ -69,7 +90,7 @@ def query_by_committee(structure):
             diffs.append(s12_mag_of_stress_diff)
 
         return np.mean(diffs)
-    
+
     df = evaluate_structures_using_UIPs(structure)
     energy_diff = get_min_energy_diff(df["energy"].to_list())
     force_diff = get_min_force_diff(df["forces"].to_list())
@@ -91,16 +112,23 @@ def query_by_committee(structure):
         stress_mag = abs(np.mean(cur_stresses[0:3]))
         list_of_stress_mags.append(stress_mag)
 
-    return energy_diff, force_diff, stress_diff, list_of_energies, list_of_max_force_mags, list_of_stress_mags, df
+    return (
+        energy_diff,
+        force_diff,
+        stress_diff,
+        list_of_energies,
+        list_of_max_force_mags,
+        list_of_stress_mags,
+        df,
+    )
 
 
 # get all species to use in structure generation
 def get_all_ele_combos(num_components: int):
     elements_to_exclude = ["Po", "At", "Rn", "Fr", "Ra"]
     species_list = []
-    for i in range(1,95):
+    for i in range(1, 95):
         symbol = Element.from_Z(i).symbol
-        ele = Element.from_Z(i)
         if symbol not in elements_to_exclude:
             species_list.append(symbol)
     print(species_list)
@@ -117,7 +145,7 @@ def find_unique_ele_permutations(prototype_structure):
     (H --> Fe) + (He --> Co) is equivalent to (H --> Co) + (He --> Fe).
     If they are equivalent, only one structure would be returned. If they are
     different, two structures would be returned (one for each substitution pairing).
-    
+
     This function is generalized to perform this action for any number of
     species substitutions (e.g. [H, He, Li] being changed to [Fe, Co, Ni])
     """
@@ -135,7 +163,12 @@ def find_unique_ele_permutations(prototype_structure):
 
         is_unique = True
         for unique_struct in list_of_uniquely_permuted_structs:
-            if new_struct.matches(unique_struct, primitive_cell = False, ltol = 0.01, stol = 0.01,):
+            if new_struct.matches(
+                unique_struct,
+                primitive_cell=False,
+                ltol=0.01,
+                stol=0.01,
+            ):
                 is_unique = False
                 break
         if is_unique:
@@ -144,11 +177,11 @@ def find_unique_ele_permutations(prototype_structure):
     return list_of_uniquely_permuted_structs
 
 
-def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
+def run_QBC_for_prototype_struct(prototype_filepath, test_mode=False):
 
     if test_mode:
-        energy_diff_threshold = 0.01 
-        force_diff_threshold = 0.01 
+        energy_diff_threshold = 0.01
+        force_diff_threshold = 0.01
         stress_diff_threshold = 0.01
         max_allowed_median_energy = 100
         max_allowed_median_force_mag = 100
@@ -159,10 +192,9 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
     if "weight" in prototype_info:
         prototype_info, weight = prototype_info.rsplit("_weight")
         weight = np.sqrt(float(weight)) / 3
-    
+
     # load in prototype struct
     prototype_structure = Structure.from_file(prototype_filepath)
-
 
     errors = []
     structs_with_big_PES_gap = []
@@ -175,7 +207,9 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
     num_too_high_stress = 0
 
     # get all unique ways to occupy the prototype structure
-    unique_prototype_site_occupations = find_unique_ele_permutations(prototype_structure)
+    unique_prototype_site_occupations = find_unique_ele_permutations(
+        prototype_structure
+    )
     print(len(unique_prototype_site_occupations))
 
     cur_1st_ele = None
@@ -186,35 +220,45 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
         # below is to print out info for debugging and monitoring progress, nothing more
         if cur_1st_ele != ele_combo[0]:
             cur_1st_ele = ele_combo[0]
-            print(f"number of structs added due to energy, force, and stress disagreements: {num_structs_due_to_energy_disagreement, num_structs_due_to_force_disagreement, num_structs_due_to_stress_disagreement}")
-            print(f"num of structs thrown out due to having too high energy, force, stress: {num_too_high_energy, num_too_high_force, num_too_high_stress}")
+            print(
+                f"number of structs added due to energy, force, and stress disagreements: {num_structs_due_to_energy_disagreement, num_structs_due_to_force_disagreement, num_structs_due_to_stress_disagreement}"
+            )
+            print(
+                f"num of structs thrown out due to having too high energy, force, stress: {num_too_high_energy, num_too_high_force, num_too_high_stress}"
+            )
             print("total number of structs evaluated:", len(errors), "\n")
             print("starting on structs with:", cur_1st_ele)  # track progress visually
 
-
         if len(ele_combo) != prototype_structure.n_elems:
-            raise ValueError("number of prototype_structure eles and number of desired eles to substitute into struct do not match!")
-        
+            raise ValueError(
+                "number of prototype_structure eles and number of desired eles to substitute into struct do not match!"
+            )
+
         for struct_throwaway in unique_prototype_site_occupations:
-            # Randomly skip ternary structures due to combinatorial explosion of 
+            # Randomly skip ternary structures due to combinatorial explosion of
             # possible compositions.
             if random.random() > weight:
                 # print('Skipping this structure randomly...')
                 continue
 
-
             structure = copy.deepcopy(struct_throwaway)
             specMap = dict(zip(arbitrary_elements, ele_combo))
             structure.replace_species(specMap)
-            
 
             # guess the lattice param based on pymatgen Element.atomic_radius
             structure = get_structure_with_guessed_lattice_params(structure)
             # apply random perturbations to atom positions and lattice
             structure = scramble_structure(structure)
 
-
-            energy_diff, force_diff, stress_diff, energies_list, max_force_mag_list, stress_mag_list, df_results = query_by_committee(structure)
+            (
+                energy_diff,
+                force_diff,
+                stress_diff,
+                energies_list,
+                max_force_mag_list,
+                stress_mag_list,
+                df_results,
+            ) = query_by_committee(structure)
 
             # if predicted energies are too high, do not include the structure
             # if predicted forces are too high, do not include the structure
@@ -232,7 +276,6 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
 
             if struct_too_extreme:
                 continue
-
 
             # get multiplication factors for thresholds, used to reduce number of
             # undesirable structures selected.
@@ -272,7 +315,7 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
                 mult_factor *= lanthanide_factor
 
             # weight structures according to how many sites they have --> we want smaller structures
-            mult_factor *= np.sqrt(len(structure))/np.sqrt(2)
+            mult_factor *= np.sqrt(len(structure)) / np.sqrt(2)
 
             cur_energy_diff_threshold = energy_diff_threshold * mult_factor
             cur_force_diff_threshold = force_diff_threshold * mult_factor
@@ -284,9 +327,12 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
             if stress_diff > cur_stress_diff_threshold:
                 num_structs_due_to_stress_disagreement += 1
 
-            if (energy_diff > cur_energy_diff_threshold) or (force_diff > cur_force_diff_threshold) or (stress_diff > cur_stress_diff_threshold):
+            if (
+                (energy_diff > cur_energy_diff_threshold)
+                or (force_diff > cur_force_diff_threshold)
+                or (stress_diff > cur_stress_diff_threshold)
+            ):
                 structs_with_big_PES_gap.append(structure)
-
 
             # log information for analysis in post
             energy_diff = round(energy_diff, 8)
@@ -294,31 +340,29 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
             stress_diff = round(stress_diff, 8)
             errors.append([energy_diff, force_diff, stress_diff])
 
-        if test_mode: # only run a few structures for testing purposes
+        if test_mode:  # only run a few structures for testing purposes
             if len(errors) > 0:
                 break
 
-
     # write structures of interest to POSCAR files
     # folder_to_save_structs_in = base_folder_to_save + "/" + datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
-    folder_to_save_structs_in = os.path.join(base_folder_to_save, prototype_info)
+    folder_to_save_structs_in = os.path.join(candidates_path, prototype_info)
     try:
-        os.mkdir(base_folder_to_save)
-    except:
+        os.mkdir(candidates_path)
+    except Exception:
         pass
     try:
         if os.path.exists(folder_to_save_structs_in):
             shutil.rmtree(folder_to_save_structs_in)
         os.mkdir(folder_to_save_structs_in)
-    except:
+    except Exception:
         pass
-
 
     # write candidate structures to file AND calculate their CHGNet descriptor
     for struct in structs_with_big_PES_gap:
         formula = struct.formula
         formula = "_".join(sorted(formula.split(" ")))
-        
+
         # ensure a unique filename is made for each permuted occupation of a prototype
         permut_number = 1
         struct_identifier = f"{formula}_permut{permut_number}_{prototype_info}.POSCAR"
@@ -329,25 +373,27 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
             new_file_path = f"{folder_to_save_structs_in}/{formula}_permut{permut_number}_{prototype_info}.POSCAR"
 
         # write new file
-        with open(new_file_path, 'w') as f:  
-            print(MPRelaxSet(structure=struct).poscar, file=f) 
-
+        with open(new_file_path, "w") as f:
+            print(MPRelaxSet(structure=struct).poscar, file=f)
 
     # write ensemble metrics to csv
     column_names = ["energy_disagreement", "force_disagreement", "stress_disagreement"]
-    df = pd.DataFrame(errors, columns = column_names)
+    df = pd.DataFrame(errors, columns=column_names)
     # round data to make files smaller
     df = df.round(4)
     metrics_filename = f"{folder_to_save_structs_in}/_ensemble_metrics"
     df.to_csv(f"{metrics_filename}.csv")
 
-
-    print('outputting summary stats')
-    print(f"number of candidate structures / total structs: {len(structs_with_big_PES_gap)} / {len(errors)}")
+    print("outputting summary stats")
+    print(
+        f"number of candidate structures / total structs: {len(structs_with_big_PES_gap)} / {len(errors)}"
+    )
     errors = np.array(errors)
 
-    for percentile in [5,25,50,75,95]:
-        print(f"{percentile}th percentile error: {np.percentile(errors, percentile, axis=0)} [energy, force, stress]")
+    for percentile in [5, 25, 50, 75, 95]:
+        print(
+            f"{percentile}th percentile error: {np.percentile(errors, percentile, axis=0)} [energy, force, stress]"
+        )
     ele_counts = []
     for struct in structs_with_big_PES_gap:
         ele_counts += [specie.symbol for specie in struct.species]
