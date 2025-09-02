@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+candidate_structures_for_dft
+
 # C extensions
 *.so
 
