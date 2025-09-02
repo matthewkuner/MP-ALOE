@@ -6,7 +6,7 @@ import json
 from maml.sampling.direct import DIRECTSampler, BirchClustering, SelectKFromClusters
 
 
-data_path = "candidate_structures_for_dft"
+data_path = "../candidate_structures_for_dft"
 
 def run_DIRECT_sampling(data_path, threshold = 0.1):
     descriptor_files = sorted(glob.glob(data_path + "/*descriptors.json"))

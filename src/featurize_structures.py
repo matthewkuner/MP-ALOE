@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from pymatgen.core.structure import Structure
 
-base_folder_to_save = "candidate_structures_for_dft"
+base_folder_to_save = "../candidate_structures_for_dft"
 
 def featurize_structures_in_folder(folder_path):
     struct_filepaths = glob.glob(folder_path + "/*.POSCAR")

@@ -36,7 +36,7 @@ actinide_factor = 4
 lanthanide_factor = 3
 Tc_factor = 4
 
-base_folder_to_save = "candidate_structures_for_dft"
+base_folder_to_save = "../candidate_structures_for_dft"
 
 arbitrary_elements = ["H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca"]
 
