@@ -22,8 +22,6 @@ def run_DIRECT_sampling(data_path, threshold = 0.1):
             )
         master_list += data
         print(len(master_list))
-    with open(f"{data_path}/all_descriptors_concatenated_together.json", 'w') as fout:
-        json.dump(master_list , fout)
 
     df = pd.DataFrame(master_list)
     print(f"number of starting structures = {len(df)}")

@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 from _scramble_structure import scramble_structure
 from _guess_lattice_param import get_structure_with_guessed_lattice_params
 from _run_UIPs import evaluate_structures_using_UIPs
+import shutil
 
 energy_diff_threshold = 0.1 #eV/atom
 force_diff_threshold = 0.1 #eV/Angstrom
@@ -299,12 +300,15 @@ def run_QBC_for_prototype_struct(prototype_filepath, test_mode = False):
 
 
     # write structures of interest to POSCAR files
-    folder_to_save_structs_in = base_folder_to_save + "/" + datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
+    # folder_to_save_structs_in = base_folder_to_save + "/" + datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
+    folder_to_save_structs_in = os.path.join(base_folder_to_save, prototype_info)
     try:
         os.mkdir(base_folder_to_save)
     except:
         pass
     try:
+        if os.path.exists(folder_to_save_structs_in):
+            shutil.rmtree(folder_to_save_structs_in)
         os.mkdir(folder_to_save_structs_in)
     except:
         pass
